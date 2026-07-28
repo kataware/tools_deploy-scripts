@@ -1,0 +1,44 @@
+# サンプル設定ファイル（各プロジェクトのリポジトリ直下に `.deploy` として配置する）
+#
+# deploy.sh が実際に読むキーは以下の4つのみ（これが設定できる項目の全て）:
+#
+# - host      : 接続先。ssh にそのまま渡される（deploy.sh内部で "user@host" 等の
+#               加工はしない）ので、接続ユーザーを指定したい場合は
+#                 (a) host=user@192.168.123.45 のように host 自体に含めるか
+#                 (b) ~/.ssh/config にHostエイリアスを作り User/Port/IdentityFile 等を書く
+#               のどちらか。鍵の有無・ポート等も同様にssh側（~/.ssh/config）に委ねる。
+# - path      : 対象サーバ上のドキュメントルート（直下に .git または .svn がある想定）
+# - post_pull : pull/up成功後にリモートで実行する任意コマンド（省略可、pullと同一ssh接続内で実行）
+# - password  : 省略可。鍵認証が無いホスト向けにsshパスワードを自動投入する（sshpassが必要）。
+#               未設定 or sshpass未インストール時は従来通り対話プロンプトにフォールバックする。
+#
+#               【重要】password を書いた .deploy は必ずVCS管理から除外すること
+#               （git: .gitignore に `.deploy` を追加 / svn: svn:ignore プロパティに `.deploy` を追加）。
+#               除外しないと平文パスワードがリポジトリ履歴に残る。
+#
+# セクション名（[45] や [prod] など）が deploy.sh の <target> 引数に対応する。
+
+# host に "user@host" を直書きする例（gitプロジェクト・Laravel案件、password未使用）
+[45]
+host=deploy-user@192.168.123.45
+path=/var/www/vhosts/example.com
+post_pull=php artisan config:clear && php artisan view:clear && php artisan cache:clear
+
+# ~/.ssh/config のHostエイリアスを使う例（User/Port/IdentityFileはエイリアス側で設定済み想定、post_pullなし）
+# ~/.ssh/config側の例:
+#   Host example-prod
+#       HostName 203.0.113.20
+#       User deploy-user
+#       Port 22222
+#       IdentityFile ~/.ssh/id_ed25519_example
+[prod]
+host=example-prod
+path=/var/www/vhosts/example.com/current
+
+# svn管理プロジェクトの例（鍵認証が無いため password でパスワード自動投入、post_pullでパーミッション調整）
+# ※このセクションを含む .deploy は必ず ignore 対象にすること
+[stg]
+host=stg-user@203.0.113.10
+path=/var/www/vhosts/legacy-app.example.com
+password=xxxxxxxx
+post_pull=chmod -R 775 storage && chown -R www-data:www-data storage

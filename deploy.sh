@@ -10,9 +10,9 @@
 #   host=192.168.123.45          # ~/.ssh/config のHostエイリアスでも生ホスト名/IPでも可
 #   path=/var/www/vhosts/example.com
 #   post_pull=php artisan config:clear && php artisan view:clear
+#   password=xxxxx                # 省略可。鍵認証が無いホスト向け（sshpass必須。.deployは各プロジェクト側でVCS管理から除外すること）
 #
-# 鍵認証が無いホストは ssh が対話式でパスワードを聞いてくるのでそのまま入力すればよい
-# （パスワードをcnfやスクリプトに埋め込むことはしない）。
+# passwordが未設定、またはsshpassが無い場合は ssh が対話式でパスワードを聞いてくるのでそのまま入力すればよい。
 
 set -euo pipefail
 
@@ -49,6 +49,7 @@ get_ini_value() {
 host=$(get_ini_value "host")
 path=$(get_ini_value "path")
 post_pull=$(get_ini_value "post_pull")
+password=$(get_ini_value "password")
 
 if [ -z "$host" ] || [ -z "$path" ]; then
     echo "対象 [$target] が見つからないか host/path が未設定です（$cnf）" >&2
@@ -92,4 +93,14 @@ $post_pull"
 fi
 
 echo "==> [$target] $host:$path へデプロイします"
-ssh -t "$host" "$remote_cmd"
+
+if [ -n "$password" ]; then
+    if command -v sshpass >/dev/null 2>&1; then
+        SSHPASS="$password" sshpass -e ssh -t "$host" "$remote_cmd"
+    else
+        echo "警告: passwordが設定されていますがsshpassが見つかりません。対話プロンプトにフォールバックします" >&2
+        ssh -t "$host" "$remote_cmd"
+    fi
+else
+    ssh -t "$host" "$remote_cmd"
+fi
