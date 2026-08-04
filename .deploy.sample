@@ -42,6 +42,16 @@ user=ec2-user
 identity_file=~/.ssh/keys/example.pem
 path=/var/www/vhosts/example.com
 
+# Dockerコンテナで運用するプロジェクトの例（post_pullでビルド→既存コンテナ入れ替え→起動）
+# docker run --name は同名コンテナが残っていると失敗するため、
+# 先に `docker rm -f <name> || true`（無ければ黙って無視）で消してから起動する。
+# remote_cmd全体は set -e 下で動くので、rmの失敗が && チェーンを止めないよう
+# 単独では && で繋がず (docker rm -f ... || true) のように必ず正常終了させて挟む。
+[docker]
+host=203.0.113.40
+path=/home/projects/docker
+post_pull=docker build -t DOCKER_IMAGE_NAME . && (docker rm -f DOCKER_CONTAINER_NAME || true) && docker run -d --name DOCKER_CONTAINER_NAME --restart=always -p 80:8080 DOCKER_IMAGE_NAME
+
 # svn管理プロジェクトの例（鍵認証が無いため password でパスワード自動投入、post_pullでパーミッション調整）
 # ※このセクションを含む .deploy は必ず ignore 対象にすること
 [stg]
