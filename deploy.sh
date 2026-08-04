@@ -94,13 +94,35 @@ fi
 
 echo "==> [$target] $host:$path へデプロイします"
 
+use_sshpass=0
 if [ -n "$password" ]; then
     if command -v sshpass >/dev/null 2>&1; then
-        SSHPASS="$password" sshpass -e ssh -t "$host" "$remote_cmd"
+        use_sshpass=1
     else
         echo "警告: passwordが設定されていますがsshpassが見つかりません。対話プロンプトにフォールバックします" >&2
-        ssh -t "$host" "$remote_cmd"
     fi
+fi
+
+# -o StrictHostKeyChecking=accept-new: 未登録ホストの鍵は自動登録するが、
+# 登録済みの鍵と相違があった場合は従来通り拒否される（MITM対策は維持）
+set +e
+if [ "$use_sshpass" -eq 1 ]; then
+    SSHPASS="$password" sshpass -e ssh -o StrictHostKeyChecking=accept-new -t "$host" "$remote_cmd"
 else
-    ssh -t "$host" "$remote_cmd"
+    ssh -o StrictHostKeyChecking=accept-new -t "$host" "$remote_cmd"
+fi
+rc=$?
+set -e
+
+if [ "$rc" -ne 0 ]; then
+    if [ "$use_sshpass" -eq 1 ] && [ "$rc" -eq 6 ]; then
+        echo "エラー: ホスト鍵が未確認のためsshpassが接続を中断しました（sshpass exit 6）。一度 'ssh $host' を手動実行してホスト鍵を確認・登録してから再実行してください。" >&2
+    elif [ "$use_sshpass" -eq 1 ] && [ "$rc" -eq 5 ]; then
+        echo "エラー: sshpassでの認証に失敗しました。.deploy の password を確認してください（sshpass exit 5）。" >&2
+    elif [ "$rc" -eq 255 ]; then
+        echo "エラー: ssh接続に失敗しました。host設定やネットワーク、ホスト鍵の変更（上記のssh出力）を確認してください。" >&2
+    else
+        echo "エラー: デプロイに失敗しました (exit code: $rc)。リモートコマンド（pull/post_pull）の出力を確認してください。" >&2
+    fi
+    exit "$rc"
 fi
