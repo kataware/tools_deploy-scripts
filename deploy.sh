@@ -7,7 +7,9 @@
 #
 # cnfファイル書式（ini形式）:
 #   [45]
-#   host=192.168.123.45          # ~/.ssh/config のHostエイリアスでも生ホスト名/IPでも可
+#   host=192.168.123.45                    # ~/.ssh/config のHostエイリアスでも生ホスト名/IPでも可（user@host形式も可）
+#   user=deploy-user                       # 省略可。指定すると host の前に付与してsshに渡す（host側にuser@を書く代替）
+#   identity_file=~/.ssh/keys/example.pem  # 省略可。秘密鍵ファイル（pem等）を指定してssh -iで渡す
 #   path=/var/www/vhosts/example.com
 #   post_pull=php artisan config:clear && php artisan view:clear
 #   password=xxxxx                # 省略可。鍵認証が無いホスト向け（sshpass必須。.deployは各プロジェクト側でVCS管理から除外すること）
@@ -50,10 +52,24 @@ host=$(get_ini_value "host")
 path=$(get_ini_value "path")
 post_pull=$(get_ini_value "post_pull")
 password=$(get_ini_value "password")
+user=$(get_ini_value "user")
+identity_file=$(get_ini_value "identity_file")
 
 if [ -z "$host" ] || [ -z "$path" ]; then
     echo "対象 [$target] が見つからないか host/path が未設定です（$cnf）" >&2
     exit 1
+fi
+
+if [ -n "$user" ]; then
+    ssh_target="$user@$host"
+else
+    ssh_target="$host"
+fi
+
+ssh_opts=(-o StrictHostKeyChecking=accept-new)
+if [ -n "$identity_file" ]; then
+    identity_file="${identity_file/#\~/$HOME}"
+    ssh_opts+=(-i "$identity_file")
 fi
 
 # ローカルに未pushのコミットがないか警告（gitのみ。svnはpush概念が無いため対象外）
@@ -92,7 +108,7 @@ if [ -n "$post_pull" ]; then
 $post_pull"
 fi
 
-echo "==> [$target] $host:$path へデプロイします"
+echo "==> [$target] $ssh_target:$path へデプロイします"
 
 use_sshpass=0
 if [ -n "$password" ]; then
@@ -103,20 +119,20 @@ if [ -n "$password" ]; then
     fi
 fi
 
-# -o StrictHostKeyChecking=accept-new: 未登録ホストの鍵は自動登録するが、
+# StrictHostKeyChecking=accept-new: 未登録ホストの鍵は自動登録するが、
 # 登録済みの鍵と相違があった場合は従来通り拒否される（MITM対策は維持）
 set +e
 if [ "$use_sshpass" -eq 1 ]; then
-    SSHPASS="$password" sshpass -e ssh -o StrictHostKeyChecking=accept-new -t "$host" "$remote_cmd"
+    SSHPASS="$password" sshpass -e ssh "${ssh_opts[@]}" -t "$ssh_target" "$remote_cmd"
 else
-    ssh -o StrictHostKeyChecking=accept-new -t "$host" "$remote_cmd"
+    ssh "${ssh_opts[@]}" -t "$ssh_target" "$remote_cmd"
 fi
 rc=$?
 set -e
 
 if [ "$rc" -ne 0 ]; then
     if [ "$use_sshpass" -eq 1 ] && [ "$rc" -eq 6 ]; then
-        echo "エラー: ホスト鍵が未確認のためsshpassが接続を中断しました（sshpass exit 6）。一度 'ssh $host' を手動実行してホスト鍵を確認・登録してから再実行してください。" >&2
+        echo "エラー: ホスト鍵が未確認のためsshpassが接続を中断しました（sshpass exit 6）。一度 'ssh ${ssh_opts[*]} $ssh_target' を手動実行してホスト鍵を確認・登録してから再実行してください。" >&2
     elif [ "$use_sshpass" -eq 1 ] && [ "$rc" -eq 5 ]; then
         echo "エラー: sshpassでの認証に失敗しました。.deploy の password を確認してください（sshpass exit 5）。" >&2
     elif [ "$rc" -eq 255 ]; then

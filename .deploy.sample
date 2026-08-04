@@ -1,20 +1,20 @@
 # サンプル設定ファイル（各プロジェクトのリポジトリ直下に `.deploy` として配置する）
 #
-# deploy.sh が実際に読むキーは以下の4つのみ（これが設定できる項目の全て）:
+# deploy.sh が実際に読むキーは以下の6つのみ（これが設定できる項目の全て）:
 #
-# - host      : 接続先。ssh にそのまま渡される（deploy.sh内部で "user@host" 等の
-#               加工はしない）ので、接続ユーザーを指定したい場合は
-#                 (a) host=user@192.168.123.45 のように host 自体に含めるか
-#                 (b) ~/.ssh/config にHostエイリアスを作り User/Port/IdentityFile 等を書く
-#               のどちらか。鍵の有無・ポート等も同様にssh側（~/.ssh/config）に委ねる。
-# - path      : 対象サーバ上のドキュメントルート（直下に .git または .svn がある想定）
-# - post_pull : pull/up成功後にリモートで実行する任意コマンド（省略可、pullと同一ssh接続内で実行）
-# - password  : 省略可。鍵認証が無いホスト向けにsshパスワードを自動投入する（sshpassが必要）。
-#               未設定 or sshpass未インストール時は従来通り対話プロンプトにフォールバックする。
+# - host          : 接続先ホスト名/IP。ssh にそのまま渡される。~/.ssh/config のHostエイリアスでも可
+# - user          : 省略可。接続ユーザー名。指定すると host の前に付与して "user@host" としてsshに渡す
+# - identity_file : 省略可。秘密鍵ファイル（pem等）のパス。指定すると ssh -i で渡す。~ はホームディレクトリに展開される
+# - path          : 対象サーバ上のドキュメントルート（直下に .git または .svn がある想定）
+# - post_pull     : pull/up成功後にリモートで実行する任意コマンド（省略可、pullと同一ssh接続内で実行）
+# - password      : 省略可。鍵認証が無いホスト向けにsshパスワードを自動投入する（sshpassが必要）。
+#                    未設定 or sshpass未インストール時は従来通り対話プロンプトにフォールバックする。
 #
-#               【重要】password を書いた .deploy は必ずVCS管理から除外すること
-#               （git: .gitignore に `.deploy` を追加 / svn: svn:ignore プロパティに `.deploy` を追加）。
-#               除外しないと平文パスワードがリポジトリ履歴に残る。
+#                    【重要】password を書いた .deploy は必ずVCS管理から除外すること
+#                    （git: .gitignore に `.deploy` を追加 / svn: svn:ignore プロパティに `.deploy` を追加）。
+#                    除外しないと平文パスワードがリポジトリ履歴に残る。
+#
+# host に "user@host" を直書きする書き方も互換のため使える（user キーとどちらか一方でよい）。
 #
 # セクション名（[45] や [prod] など）が deploy.sh の <target> 引数に対応する。
 
@@ -34,6 +34,13 @@ post_pull=php artisan config:clear && php artisan view:clear && php artisan cach
 [prod]
 host=example-prod
 path=/var/www/vhosts/example.com/current
+
+# user / identity_file キーで ~/.ssh/config を使わずに完結させる例（EC2のpemキー等）
+[ec2]
+host=203.0.113.30
+user=ec2-user
+identity_file=~/.ssh/keys/example.pem
+path=/var/www/vhosts/example.com
 
 # svn管理プロジェクトの例（鍵認証が無いため password でパスワード自動投入、post_pullでパーミッション調整）
 # ※このセクションを含む .deploy は必ず ignore 対象にすること

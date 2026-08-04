@@ -36,29 +36,39 @@ ini形式。デプロイ対象プロジェクトのリポジトリ直下に置�
 
 ```ini
 [45]
-host=deploy-user@192.168.123.45
+host=192.168.123.45
+user=deploy-user
 path=/var/www/vhosts/example.com
 post_pull=php artisan config:clear && php artisan view:clear
 password=xxxxxxxx
 ```
 
-設定できるキーは以下の4つのみ。
+設定できるキーは以下の6つのみ。
 
 | キー | 必須 | 説明 |
 |---|---|---|
-| `host` | ○ | 接続先。`ssh $host` にそのまま渡す。`~/.ssh/config`のHostエイリアス名でも、生ホスト名/IPでも可 |
+| `host` | ○ | 接続先ホスト名/IP。`~/.ssh/config`のHostエイリアス名でも可。`user@host`形式で直書きしても良い（後述） |
 | `path` | ○ | 対象サーバ上のドキュメントルート（直下に`.git`または`.svn`がある想定） |
+| `user` | - | 接続ユーザー名。指定すると`host`の前に付与して`ssh`に渡す |
+| `identity_file` | - | 秘密鍵ファイル（pem等）のパス。指定すると`ssh -i`で渡す。`~`は展開される |
 | `post_pull` | - | pull/up成功後にリモートで実行する任意コマンド |
 | `password` | - | 鍵認証が無いホスト向け。sshパスワードを自動投入する（要`sshpass`） |
 
 サンプル: [.deploy.sample](.deploy.sample)
 
-### 接続ユーザーの指定
+### 接続ユーザー・鍵ファイルの指定
 
-専用キーは無い。以下のどちらかで指定する。
+`~/.ssh/config`を使わず`.deploy`だけで完結させたい場合は`user`・`identity_file`キーを使う。
 
-- `host=user@192.168.123.45` のように `host` 自体に含める
-- `~/.ssh/config` にHostエイリアスを作り `User` を書く（ポートや鍵ファイルもここにまとめられる）
+```ini
+[prod]
+host=203.0.113.20
+user=ec2-user
+identity_file=~/.ssh/keys/example.pem
+path=/var/www/vhosts/example.com
+```
+
+`~/.ssh/config`にHostエイリアスを作る方法も引き続き使える（ポートなど`user`/`identity_file`ではカバーしない項目をまとめたい場合はこちら）。
 
 ```
 # ~/.ssh/config
@@ -68,6 +78,8 @@ Host example-prod
     Port 22222
     IdentityFile ~/.ssh/id_ed25519_example
 ```
+
+`host=user@192.168.123.45`のように`host`自体に`user@`を含める書き方も互換のため残っている。
 
 ### パスワード認証（`password`キー）
 
@@ -115,7 +127,7 @@ deploy.shが直接使うのは「ローカル→対象サーバ」の接続の�
 
 ### ローカル→対象サーバ
 
-通常の鍵認証（`~/.ssh/config`の`IdentityFile`）か、鍵が無ければ前述の`password`キーで対応する。
+通常の鍵認証（`.deploy`の`identity_file`キーか`~/.ssh/config`の`IdentityFile`）か、鍵が無ければ前述の`password`キーで対応する。
 
 ### 対象サーバ→gitリモート（read-onlyデプロイキー）
 
