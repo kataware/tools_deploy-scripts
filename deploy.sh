@@ -13,8 +13,10 @@
 #   path=/var/www/vhosts/example.com
 #   post_pull=php artisan config:clear && php artisan view:clear
 #   password=xxxxx                # 省略可。鍵認証が無いホスト向け（sshpass必須。.deployは各プロジェクト側でVCS管理から除外すること）
+#   log=true                      # 省略可(既定false=出力しない)。trueで path 直下の deploy.log に追記、パスを指定するとそこに追記する（相対パスは path 基準）
 #
 # passwordが未設定、またはsshpassが無い場合は ssh が対話式でパスワードを聞いてくるのでそのまま入力すればよい。
+# logはリモートのログインシェルがbashであることが前提（exec > >(tee ...) を使用するため）。
 
 set -euo pipefail
 
@@ -54,10 +56,20 @@ post_pull=$(get_ini_value "post_pull")
 password=$(get_ini_value "password")
 user=$(get_ini_value "user")
 identity_file=$(get_ini_value "identity_file")
+log=$(get_ini_value "log")
 
 if [ -z "$host" ] || [ -z "$path" ]; then
     echo "対象 [$target] が見つからないか host/path が未設定です（$cnf）" >&2
     exit 1
+fi
+
+log_target=""
+if [ -n "$log" ] && [ "$log" != "false" ]; then
+    if [ "$log" = "true" ]; then
+        log_target="deploy.log"
+    else
+        log_target="$log"
+    fi
 fi
 
 if [ -n "$user" ]; then
@@ -92,6 +104,21 @@ fi
 remote_cmd=$(cat <<EOS
 set -e
 cd "$path"
+EOS
+)
+
+if [ -n "$log_target" ]; then
+    remote_cmd="$remote_cmd
+$(cat <<EOS
+mkdir -p "\$(dirname "$log_target")"
+exec > >(tee -a "$log_target") 2>&1
+echo "===== \$(date '+%Y-%m-%d %H:%M:%S') [$target] ====="
+EOS
+)"
+fi
+
+remote_cmd="$remote_cmd
+$(cat <<EOS
 if [ -d .git ]; then
     git pull
 elif [ -d .svn ]; then
@@ -101,7 +128,7 @@ else
     exit 1
 fi
 EOS
-)
+)"
 
 if [ -n "$post_pull" ]; then
     remote_cmd="$remote_cmd

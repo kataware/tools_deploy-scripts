@@ -43,7 +43,7 @@ post_pull=php artisan config:clear && php artisan view:clear
 password=xxxxxxxx
 ```
 
-設定できるキーは以下の6つのみ。
+設定できるキーは以下の7つのみ。
 
 | キー | 必須 | 説明 |
 |---|---|---|
@@ -53,6 +53,7 @@ password=xxxxxxxx
 | `identity_file` | - | 秘密鍵ファイル（pem等）のパス。指定すると`ssh -i`で渡す。`~`は展開される |
 | `post_pull` | - | pull/up成功後にリモートで実行する任意コマンド |
 | `password` | - | 鍵認証が無いホスト向け。sshパスワードを自動投入する（要`sshpass`） |
+| `log` | - | デプロイログの出力先。省略/`false`で出力しない（既定）。`true`で`path`直下の`deploy.log`、パスを指定するとそこに追記（後述） |
 
 サンプル: [.deploy.sample](.deploy.sample)
 
@@ -93,6 +94,22 @@ sudo apt-get install sshpass
 `password`未設定、または`sshpass`が無い環境では、従来通り`ssh -t`が対話式でパスワードを聞いてくるのでそのまま入力すればよい。
 
 **`password`を書いた`.deploy`は必ずVCS管理から除外すること。** 除外しないと平文パスワードがリポジトリ履歴に残る。手順は [`.deploy`をVCS管理から除外する](#deployをvcs管理から除外する) を参照。
+
+### デプロイログ（`log`キー）
+
+`log`を設定すると、pull/post_pullの出力をターミナル表示はそのままに、リモート側のファイルにも追記する。
+
+```ini
+log=true              # path 直下の deploy.log に追記
+log=./logs/deploy.log # path 基準の相対パスに追記（ディレクトリが無ければ自動作成）
+log=/var/log/deploy/myproj.log # 絶対パスも可
+```
+
+未設定、または`log=false`の場合は従来通りログ出力なし。
+
+- 各回の先頭に `===== YYYY-MM-DD HH:MM:SS [target] =====` の区切り行を書き込むので、複数回分の履歴が追記されていく
+- `path`がgit/svnの作業コピーの場合、`deploy.log`はワークツリー内の未追跡ファイルとして見えるようになる。気になる場合はリモート側の`.gitignore`/`svn:ignore`に追加しておくとよい
+- この機能は`exec > >(tee ...) 2>&1`というbash構文を使うため、**リモートのログインシェルがbashであること**が前提（一般的なLinuxサーバでは通常問題ない）
 
 ## `.deploy`をVCS管理から除外する
 
@@ -170,6 +187,7 @@ svn+sshの場合も考え方は同じ（pull専用の鍵をサーバ側に分離
 - **VCS自動判定**: リモート側`path`直下に`.git`があれば`git pull`、`.svn`があれば`svn up`。判定・実行ともにリモートで行う（1回のssh接続内）
 - **pull専任、pushは対象外**: リモートへのpull/upのみ。ローカルからリモートへのpushは持たない（手動運用のまま）
 - **1接続にまとめる**: pullと`post_pull`は同一のssh呼び出し内で連続実行する（パスワード認証ホストで複数回入力させないため）
+- **ログ出力は任意**: `log`キーを設定した場合のみリモート側で`tee`によりログファイルへ追記する（未設定時は従来通り出力なし）
 - **pre/post-pushフックや`public/build`のrsync連携などは現状スコープ外**
 
 より詳細な設計意図は [CLAUDE.md](CLAUDE.md) を参照。

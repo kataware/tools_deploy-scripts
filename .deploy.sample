@@ -1,6 +1,6 @@
 # サンプル設定ファイル（各プロジェクトのリポジトリ直下に `.deploy` として配置する）
 #
-# deploy.sh が実際に読むキーは以下の6つのみ（これが設定できる項目の全て）:
+# deploy.sh が実際に読むキーは以下の7つのみ（これが設定できる項目の全て）:
 #
 # - host          : 接続先ホスト名/IP。ssh にそのまま渡される。~/.ssh/config のHostエイリアスでも可
 # - user          : 省略可。接続ユーザー名。指定すると host の前に付与して "user@host" としてsshに渡す
@@ -13,6 +13,11 @@
 #                    【重要】password を書いた .deploy は必ずVCS管理から除外すること
 #                    （git: .gitignore に `.deploy` を追加 / svn: svn:ignore プロパティに `.deploy` を追加）。
 #                    除外しないと平文パスワードがリポジトリ履歴に残る。
+#
+# - log           : 省略可（未設定 or false で出力しない）。true にすると path 直下の deploy.log に追記。
+#                    パス（例: ./logs/deploy.log）を指定するとそこに追記する（相対パスは path 基準）。
+#                    pull/post_pull の出力をターミナル表示と同時にログファイルへも書き込む。
+#                    ※リモートのログインシェルがbashであることが前提（exec > >(tee ...) を使用するため）
 #
 # host に "user@host" を直書きする書き方も互換のため使える（user キーとどちらか一方でよい）。
 #
@@ -31,9 +36,11 @@ post_pull=php artisan config:clear && php artisan view:clear && php artisan cach
 #       User deploy-user
 #       Port 22222
 #       IdentityFile ~/.ssh/id_ed25519_example
+# デプロイ履歴をログに残したいので log=true にして path 直下の deploy.log に追記する
 [prod]
 host=example-prod
 path=/var/www/vhosts/example.com/current
+log=true
 
 # user / identity_file キーで ~/.ssh/config を使わずに完結させる例（EC2のpemキー等）
 [ec2]
