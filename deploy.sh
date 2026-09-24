@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 複数プロジェクト共通デプロイスクリプト（svn/git両対応）
 #
-# Usage: deploy.sh <target> [cnf]
+# Usage: deploy.sh [-ssh] <target> [cnf]
+#   -ssh   : デプロイを行わず、cnfのhost/user/identity_file/passwordを使って対象へインタラクティブssh接続するだけのモード
 #   target : cnfファイル内のセクション名（例: 45, prod）
 #   cnf    : 設定ファイルのパス（省略時は ./.deploy）
 #
@@ -22,9 +23,15 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $(basename "$0") <target> [cnf]" >&2
+    echo "Usage: $(basename "$0") [-ssh] <target> [cnf]" >&2
     exit 1
 }
+
+mode="deploy"
+if [ "${1:-}" = "-ssh" ]; then
+    mode="ssh"
+    shift
+fi
 
 target="${1:-}"
 cnf="${2:-./.deploy}"
@@ -60,7 +67,7 @@ user=$(get_ini_value "user")
 identity_file=$(get_ini_value "identity_file")
 log=$(get_ini_value "log")
 
-if [ -z "$host" ] || [ -z "$path" ]; then
+if [ -z "$host" ] || { [ "$mode" = "deploy" ] && [ -z "$path" ]; }; then
     echo "対象 [$target] が見つからないか host/path が未設定です（$cnf）" >&2
     exit 1
 fi
@@ -84,6 +91,47 @@ ssh_opts=(-o StrictHostKeyChecking=accept-new)
 if [ -n "$identity_file" ]; then
     identity_file="${identity_file/#\~/$HOME}"
     ssh_opts+=(-i "$identity_file")
+fi
+
+use_sshpass=0
+if [ -n "$password" ]; then
+    if command -v sshpass >/dev/null 2>&1; then
+        use_sshpass=1
+    else
+        echo "警告: passwordが設定されていますがsshpassが見つかりません。対話プロンプトにフォールバックします" >&2
+    fi
+fi
+
+# -ssh モード: pull/post_pullは行わず、cnfの接続情報でインタラクティブにログインするだけ
+# （pathが設定されていればそこにcdしてからログインシェルを起動する）
+if [ "$mode" = "ssh" ]; then
+    ssh_args=("${ssh_opts[@]}" -t "$ssh_target")
+    if [ -n "$path" ]; then
+        ssh_args+=("cd \"$path\" && exec \${SHELL:-bash} -l")
+    fi
+
+    echo "==> [$target] $ssh_target へSSH接続します" >&2
+
+    set +e
+    if [ "$use_sshpass" -eq 1 ]; then
+        SSHPASS="$password" sshpass -e ssh "${ssh_args[@]}"
+    else
+        ssh "${ssh_args[@]}"
+    fi
+    rc=$?
+    set -e
+
+    if [ "$rc" -ne 0 ]; then
+        if [ "$use_sshpass" -eq 1 ] && [ "$rc" -eq 6 ]; then
+            echo "エラー: ホスト鍵が未確認のためsshpassが接続を中断しました（sshpass exit 6）。一度 'ssh ${ssh_opts[*]} $ssh_target' を手動実行してホスト鍵を確認・登録してから再実行してください。" >&2
+        elif [ "$use_sshpass" -eq 1 ] && [ "$rc" -eq 5 ]; then
+            echo "エラー: sshpassでの認証に失敗しました。.deploy の password を確認してください（sshpass exit 5）。" >&2
+        elif [ "$rc" -eq 255 ]; then
+            echo "エラー: ssh接続に失敗しました。host設定やネットワーク、ホスト鍵の変更（上記のssh出力）を確認してください。" >&2
+        fi
+        exit "$rc"
+    fi
+    exit 0
 fi
 
 # ローカルに未pushのコミットがないか警告（gitのみ。svnはpush概念が無いため対象外）
@@ -148,15 +196,6 @@ $post_pull"
 fi
 
 echo "==> [$target] $ssh_target:$path へデプロイします"
-
-use_sshpass=0
-if [ -n "$password" ]; then
-    if command -v sshpass >/dev/null 2>&1; then
-        use_sshpass=1
-    else
-        echo "警告: passwordが設定されていますがsshpassが見つかりません。対話プロンプトにフォールバックします" >&2
-    fi
-fi
 
 # StrictHostKeyChecking=accept-new: 未登録ホストの鍵は自動登録するが、
 # 登録済みの鍵と相違があった場合は従来通り拒否される（MITM対策は維持）
