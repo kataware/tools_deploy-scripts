@@ -11,6 +11,7 @@
 #   user=deploy-user                       # 省略可。指定すると host の前に付与してsshに渡す（host側にuser@を書く代替）
 #   identity_file=~/.ssh/keys/example.pem  # 省略可。秘密鍵ファイル（pem等）を指定してssh -iで渡す
 #   path=/var/www/vhosts/example.com
+#   pre_pull=npm run build && rsync -av --delete public/build/ host:/path/public/build/  # 省略可。ssh接続前にローカルで実行。非ゼロ終了でデプロイ中断（ssh接続自体を行わない）
 #   post_pull=php artisan config:clear && php artisan view:clear
 #   password=xxxxx                # 省略可。鍵認証が無いホスト向け（sshpass必須。.deployは各プロジェクト側でVCS管理から除外すること）
 #   log=true                      # 省略可(既定false=出力しない)。trueで path 直下の deploy.log に追記、パスを指定するとそこに追記する（相対パスは path 基準）
@@ -52,6 +53,7 @@ get_ini_value() {
 
 host=$(get_ini_value "host")
 path=$(get_ini_value "path")
+pre_pull=$(get_ini_value "pre_pull")
 post_pull=$(get_ini_value "post_pull")
 password=$(get_ini_value "password")
 user=$(get_ini_value "user")
@@ -98,6 +100,16 @@ if [ -d .git ]; then
                 *) echo "中断しました。" >&2; exit 1 ;;
             esac
         fi
+    fi
+fi
+
+# pre_pull: ssh接続前にローカルで実行する任意コマンド（build成果物のrsync等）。
+# 失敗した場合はssh接続自体を行わずに中断する（コードだけ先にpullされて資産とズレる事故を防ぐため）。
+if [ -n "$pre_pull" ]; then
+    echo "==> [$target] pre_pull をローカルで実行します" >&2
+    if ! bash -c "$pre_pull"; then
+        echo "エラー: pre_pull が失敗したためデプロイを中断しました（ssh接続は行っていません）" >&2
+        exit 1
     fi
 fi
 

@@ -1,11 +1,15 @@
 # サンプル設定ファイル（各プロジェクトのリポジトリ直下に `.deploy` として配置する）
 #
-# deploy.sh が実際に読むキーは以下の7つのみ（これが設定できる項目の全て）:
+# deploy.sh が実際に読むキーは以下の8つのみ（これが設定できる項目の全て）:
 #
 # - host          : 接続先ホスト名/IP。ssh にそのまま渡される。~/.ssh/config のHostエイリアスでも可
 # - user          : 省略可。接続ユーザー名。指定すると host の前に付与して "user@host" としてsshに渡す
 # - identity_file : 省略可。秘密鍵ファイル（pem等）のパス。指定すると ssh -i で渡す。~ はホームディレクトリに展開される
 # - path          : 対象サーバ上のドキュメントルート（直下に .git または .svn がある想定）
+# - pre_pull      : 省略可。ssh接続前にローカル（呼び出し元の作業ディレクトリ）で実行する任意コマンド。
+#                    public/build のようなVCS管理外のビルド成果物をrsync等でリモートへ転送する用途を想定。
+#                    非ゼロ終了で即座にデプロイを中断し、ssh接続自体を行わない。
+#                    rsyncの接続先・認証情報はこのキーの中に自分で書く（host/passwordキーとは別物）。
 # - post_pull     : pull/up成功後にリモートで実行する任意コマンド（省略可、pullと同一ssh接続内で実行）
 # - password      : 省略可。鍵認証が無いホスト向けにsshパスワードを自動投入する（sshpassが必要）。
 #                    未設定 or sshpass未インストール時は従来通り対話プロンプトにフォールバックする。
@@ -58,6 +62,15 @@ path=/var/www/vhosts/example.com
 host=203.0.113.40
 path=/home/projects/docker
 post_pull=docker build -t DOCKER_IMAGE_NAME . && (docker rm -f DOCKER_CONTAINER_NAME || true) && docker run -d --name DOCKER_CONTAINER_NAME --restart=always -p 80:8080 DOCKER_IMAGE_NAME
+
+# public/build（Vite/Tailwind等のビルド成果物、VCS管理外）をrsyncで同期する例
+# pre_pullでローカルbuild+rsyncを行ってから、ssh接続でコードをpullする（この順序が重要。
+# 逆にするとコードだけ先に反映されて古いCSSのままの瞬間ができてしまう）
+[stg2]
+host=deploy-user@203.0.113.50
+path=/var/www/vhosts/example.com
+pre_pull=npm run build && rsync -av --delete public/build/ deploy-user@203.0.113.50:/var/www/vhosts/example.com/public/build/
+post_pull=php artisan view:clear
 
 # svn管理プロジェクトの例（鍵認証が無いため password でパスワード自動投入、post_pullでパーミッション調整）
 # ※このセクションを含む .deploy は必ず ignore 対象にすること

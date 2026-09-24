@@ -23,7 +23,7 @@ deploy <target> [cnf]
 - `target`: `.deploy` 内のセクション名（例: `45`, `prod`）
 - `cnf`: 設定ファイルパス。省略時はカレントディレクトリの `./.deploy`
 
-実行すると、対象サーバへ1回のssh接続内で以下を行う。
+実行すると、まず`pre_pull`があればローカルで実行し（失敗したらここで中断、ssh接続は行わない）、その後対象サーバへ1回のssh接続内で以下を行う。
 
 1. `path` 直下に `.git` があれば `git pull`、`.svn` があれば `svn up`
 2. 成功後、`post_pull` があれば続けて実行
@@ -43,7 +43,7 @@ post_pull=php artisan config:clear && php artisan view:clear
 password=xxxxxxxx
 ```
 
-設定できるキーは以下の7つのみ。
+設定できるキーは以下の8つのみ。
 
 | キー | 必須 | 説明 |
 |---|---|---|
@@ -51,6 +51,7 @@ password=xxxxxxxx
 | `path` | ○ | 対象サーバ上のドキュメントルート（直下に`.git`または`.svn`がある想定） |
 | `user` | - | 接続ユーザー名。指定すると`host`の前に付与して`ssh`に渡す |
 | `identity_file` | - | 秘密鍵ファイル（pem等）のパス。指定すると`ssh -i`で渡す。`~`は展開される |
+| `pre_pull` | - | ssh接続前にローカルで実行する任意コマンド。非ゼロ終了でデプロイ中断（ssh接続自体を行わない） |
 | `post_pull` | - | pull/up成功後にリモートで実行する任意コマンド |
 | `password` | - | 鍵認証が無いホスト向け。sshパスワードを自動投入する（要`sshpass`） |
 | `log` | - | デプロイログの出力先。省略/`false`で出力しない（既定）。`true`で`path`直下の`deploy.log`、パスを指定するとそこに追記（後述） |
@@ -81,6 +82,18 @@ Host example-prod
 ```
 
 `host=user@192.168.123.45`のように`host`自体に`user@`を含める書き方も互換のため残っている。
+
+### ビルド成果物のrsync連携（`pre_pull`キー）
+
+`public/build`（Vite/Tailwind等のビルド成果物）のようにVCS管理下に置いていないファイルは`git pull`/`svn up`では反映されない。`pre_pull`を設定すると、ssh接続を張る前にローカル（呼び出し元の作業ディレクトリ）で任意コマンドを実行できる。
+
+```ini
+pre_pull=npm run build && rsync -av --delete public/build/ deploy-user@192.168.123.45:/var/www/vhosts/example.com/public/build/
+```
+
+- 非ゼロ終了で即座にデプロイを中断し、ssh接続自体を行わない（コード側だけpullされて資産とズレる事故を防ぐため）
+- 実行順は必ず「`pre_pull` → ssh接続（`git pull`/`svn up` → `post_pull`）」。逆順だと新しいコードだけ先に反映されて古いビルド成果物のままの瞬間ができてしまうため
+- `post_pull`と同様、deploy.sh側はコマンドの中身を一切解釈しない。rsyncの接続先やオプション（`--delete`等）は`pre_pull`の中に自分で書く（`host`/`password`キーとは別物で、接続先を重複して書くことになるが許容する）
 
 ### パスワード認証（`password`キー）
 
@@ -188,7 +201,7 @@ svn+sshの場合も考え方は同じ（pull専用の鍵をサーバ側に分離
 - **pull専任、pushは対象外**: リモートへのpull/upのみ。ローカルからリモートへのpushは持たない（手動運用のまま）
 - **1接続にまとめる**: pullと`post_pull`は同一のssh呼び出し内で連続実行する（パスワード認証ホストで複数回入力させないため）
 - **ログ出力は任意**: `log`キーを設定した場合のみリモート側で`tee`によりログファイルへ追記する（未設定時は従来通り出力なし）
-- **pre/post-pushフックや`public/build`のrsync連携などは現状スコープ外**
+- **pre_pullはssh接続前のローカルフック**: `public/build`のようなVCS管理外のビルド成果物のrsync転送などに使う、任意コマンドを実行するだけの薄いフック（詳細は前述）。ただし`sync_dir`のような専用キーでrsyncの意味論をdeploy.sh本体に持たせることはスコープ外
 
 より詳細な設計意図は [CLAUDE.md](CLAUDE.md) を参照。
 
